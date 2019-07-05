@@ -96,7 +96,3 @@ impl Archive {
         Archive::from_file(&mut File::open(path).unwrap())
     }
 }
-
-pub fn do_it() {
-    println!("do it");
-}
