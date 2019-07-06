@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
+use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::str;
 
@@ -36,7 +37,7 @@ impl Config {
 
 enum ArError {
     EOF,
-    IO(std::io::Error),
+    IO(Error),
 }
 
 pub struct ArFile {
@@ -55,7 +56,7 @@ pub struct Archive {
 }
 
 impl Archive {
-    pub fn file_listing(&self) {
+    pub fn file_listing(&self) -> std::io::Result<()> {
         let files = self.files.iter();
         for file in files {
             println!("file: {}", file.name);
@@ -68,6 +69,7 @@ impl Archive {
             println!("");
         }
         println!("");
+        Ok(())
     }
 
     pub fn unpack_files(&mut self) -> std::io::Result<()> {
@@ -145,14 +147,17 @@ impl Archive {
             Err(e) => return Err(ArError::IO(e)),
         };
 
-        assert!(magic.as_slice() == MAGIC_BYTES);
+        if magic.as_slice() != MAGIC_BYTES {
+            let error = Error::new(ErrorKind::Other, "magic byte mismatch");
+            return Err(ArError::IO(error));
+        }
 
         let size = Archive::file_size(size_buffer.as_slice());
         let pad = size % 2;
 
         let offset = file.seek(SeekFrom::Current(0)).unwrap();
-        if file.seek(SeekFrom::Current(size + pad)).is_err() {
-            panic!("malformed archive");
+        if let Err(e) = file.seek(SeekFrom::Current(size + pad)) {
+            return Err(ArError::IO(e));
         }
 
         Ok(ArFile {
@@ -177,38 +182,37 @@ impl Archive {
         Ok(sig_buf.as_slice() == SIGNATURE)
     }
 
-    pub fn read_files(&mut self) -> Result<(), &'static str> {
+    pub fn read_files(&mut self) -> std::io::Result<()> {
         match self.signature() {
-            Ok(false) => return Err("unknown file type"),
-            Ok(_) => (),
-            Err(_) => return Err("failed to read  signature"),
+            Ok(false) => return Err(Error::new(ErrorKind::Other, "unknown file type")),
+            Ok(true) => (),
+            Err(_) => return Err(Error::new(ErrorKind::Other, "failed to read signature")),
         }
 
-        while let Ok(arfile) = Archive::file_header(&mut self.file) {
-            self.files.push(arfile);
+        loop {
+            match Archive::file_header(&mut self.file) {
+                Ok(arfile) => self.files.push(arfile),
+                Err(ArError::EOF) => break,
+                Err(ArError::IO(e)) => return Err(e),
+            }
         }
 
         Ok(())
     }
 
-    pub fn from_path(path: &Path) -> Result<Archive, &'static str> {
-        let file = File::open(path).unwrap();
+    pub fn from_path(path: &Path) -> std::io::Result<Archive> {
+        let file = File::open(path)?;
         Ok(Archive { file, files: Vec::new() })
     }
 }
 
-pub fn run(config: Config) -> Result<(), &'static str> {
+pub fn run(config: Config) -> std::io::Result<()> {
     let path = Path::new(&config.file);
     let mut archive = Archive::from_path(&path)?;
     archive.read_files()?;
 
     match config.operation {
         Operation::List => archive.file_listing(),
-        Operation::Unpack => {
-            archive.unpack_files().unwrap_or_else(|_err| {
-                println!("failed to unpack files.");
-            });
-        },
-    };
-    Ok(())
+        Operation::Unpack => archive.unpack_files(),
+    }
 }
