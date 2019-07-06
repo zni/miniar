@@ -70,12 +70,12 @@ impl Archive {
         println!("");
     }
 
-    pub fn unpack_files(&mut self) -> Result<(), std::io::Error> {
+    pub fn unpack_files(&mut self) -> std::io::Result<()> {
         let files = self.files.iter();
         for file in files {
             self.file.seek(SeekFrom::Start(file.offset))?;
 
-            let mut output_file = File::create(file.name.trim().to_owned())?;
+            let mut output_file = File::create(&file.name.trim())?;
             let mut bytes_read = 0;
             let mut byte = vec![0u8; 1];
             while bytes_read < file.size {
