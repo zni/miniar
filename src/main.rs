@@ -10,7 +10,7 @@ fn main() {
         process::exit(1);
     });
 
-    if let Err(e) = miniar::run(config) {
+    if let Err(e) = miniar::run(&config) {
         println!("miniar: {}", e);
         process::exit(1);
     }

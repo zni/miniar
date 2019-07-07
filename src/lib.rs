@@ -8,19 +8,23 @@ use std::str;
 const MAGIC_BYTES: [u8; 2] = [0x60, 0x0A];
 const SIGNATURE: [u8; 8] = [0x21, 0x3C, 0x61, 0x72, 0x63, 0x68, 0x3E, 0x0A];
 
+#[derive(Debug)]
 pub enum Operation {
     List,
-    Unpack
+    Unpack,
+    Pack
 }
 
+#[derive(Debug)]
 pub struct Config {
     pub file: String,
+    pub files: Vec<String>,
     pub operation: Operation
 }
 
 impl Config {
     pub fn new(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() != 3 {
+        if args.len() < 3 {
             return Err("Incorrect number of arguments.");
         }
 
@@ -28,10 +32,18 @@ impl Config {
         let operation = match args[1].as_str() {
             "x"  => Operation::Unpack,
             "ls" => Operation::List,
+            "c" => Operation::Pack,
             _    => return Err("Unknown option"),
         };
 
-        Ok(Config { file, operation })
+        let mut files: Vec<String> = Vec::new();
+        if let Operation::Pack = operation {
+            for arg in args.iter().skip(3) {
+                files.push(arg.to_string());
+            }
+        }
+
+        Ok(Config { file, files, operation })
     }
 }
 
@@ -206,13 +218,21 @@ impl Archive {
     }
 }
 
-pub fn run(config: Config) -> std::io::Result<()> {
+pub fn run(config: &Config) -> std::io::Result<()> {
     let path = Path::new(&config.file);
     let mut archive = Archive::from_path(&path)?;
-    archive.read_files()?;
+
+    println!("{:?}", config);
 
     match config.operation {
-        Operation::List => archive.file_listing(),
-        Operation::Unpack => archive.unpack_files(),
+        Operation::List => {
+            archive.read_files()?;
+            archive.file_listing()?;
+        },
+        Operation::Unpack => {
+            archive.read_files()?;
+            archive.unpack_files()?;
+        }
+        Operation::Pack => Ok(()),
     }
 }
