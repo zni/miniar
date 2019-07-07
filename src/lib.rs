@@ -227,11 +227,11 @@ pub fn run(config: &Config) -> std::io::Result<()> {
     match config.operation {
         Operation::List => {
             archive.read_files()?;
-            archive.file_listing()?;
+            archive.file_listing()
         },
         Operation::Unpack => {
             archive.read_files()?;
-            archive.unpack_files()?;
+            archive.unpack_files()
         }
         Operation::Pack => Ok(()),
     }
