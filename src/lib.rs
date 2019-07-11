@@ -2,11 +2,13 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::io::{Error, ErrorKind};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::str;
 
 const MAGIC_BYTES: [u8; 2] = [0x60, 0x0A];
 const SIGNATURE: [u8; 8] = [0x21, 0x3C, 0x61, 0x72, 0x63, 0x68, 0x3E, 0x0A];
+const PAD: [u8; 1] = [0x0A];
 
 #[derive(Debug)]
 pub enum Operation {
@@ -101,6 +103,59 @@ impl Archive {
                 output_file.write(&byte)?;
             }
         }
+        Ok(())
+    }
+
+    fn pack_files(&mut self, files: &Vec<String>) -> std::io::Result<()> {
+        self.file.write(&SIGNATURE)?;
+        for filename in files {
+            let mut file = File::open(filename)?;
+            let metadata = file.metadata()?;
+
+            let mut name = Vec::new();
+            write!(name, "{:<16}", filename)?;
+            self.file.write(&name[0..16])?;
+
+            let mut timestamp = Vec::new();
+            write!(timestamp, "{:<12}", "0")?;
+            self.file.write(&timestamp[0..12])?;
+
+            let mut owner = Vec::new();
+            write!(owner, "{:<6}", "0")?;
+            self.file.write(&timestamp[0..6])?;
+
+            let mut group = Vec::new();
+            write!(group, "{:<6}", "0")?;
+            self.file.write(&group[0..6])?;
+
+            let permissions = metadata.mode();
+            let mut mode = Vec::new();
+            write!(mode, "{:<8o}", permissions)?;
+            self.file.write(&mode[0..8])?;
+
+            let filesize = metadata.len();
+            let pad = filesize % 2;
+            let mut size_buffer = Vec::new();
+            write!(size_buffer, "{:<10}", filesize)?;
+            self.file.write(&size_buffer[0..10])?;
+
+            self.file.write(&MAGIC_BYTES)?;
+
+            let mut buf = vec![0u8; 1];
+            loop {
+                match file.read_exact(&mut buf) {
+                    Ok(_) => self.file.write(&buf)?,
+                    Err(_) => break,
+                };
+            }
+
+            let mut i = 0;
+            while i < pad {
+                self.file.write(&PAD)?;
+                i += 1;
+            }
+        }
+
         Ok(())
     }
 
@@ -216,23 +271,30 @@ impl Archive {
         let file = File::open(path)?;
         Ok(Archive { file, files: Vec::new() })
     }
+
+    pub fn new(path: &Path) -> std::io::Result<Archive> {
+        let file = File::create(path)?;
+        Ok(Archive { file, files: Vec::new() })
+    }
 }
 
 pub fn run(config: &Config) -> std::io::Result<()> {
     let path = Path::new(&config.file);
-    let mut archive = Archive::from_path(&path)?;
-
-    println!("{:?}", config);
 
     match config.operation {
         Operation::List => {
+            let mut archive = Archive::from_path(&path)?;
             archive.read_files()?;
             archive.file_listing()
         },
         Operation::Unpack => {
+            let mut archive = Archive::from_path(&path)?;
             archive.read_files()?;
             archive.unpack_files()
         }
-        Operation::Pack => Ok(()),
+        Operation::Pack => {
+            let mut archive = Archive::new(&path)?;
+            archive.pack_files(&config.files)
+        },
     }
 }
